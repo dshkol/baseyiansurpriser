@@ -1,0 +1,123 @@
+---
+title: "Introduction to bayesiansurprise"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to bayesiansurprise}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+## Overview
+
+The `bayesiansurprise` package implements Bayesian Surprise methodology for de-biasing thematic maps and data visualizations. This technique, based on Correll & Heer's "Surprise! Bayesian Weighting for De-Biasing Thematic Maps" (IEEE InfoVis 2016), helps identify truly surprising patterns in data by accounting for common cognitive biases.
+
+## The Problem: Cognitive Biases in Data Visualization
+
+When viewing thematic maps or data visualizations, viewers often fall prey to three cognitive biases:
+
+1. **Base rate bias**: Ignoring that larger populations naturally produce more events
+2. **Sampling error bias**: Treating small-sample estimates as equally reliable as large-sample ones
+3. **Renormalization bias**: Difficulty comparing rates across different scales
+
+## The Solution: Bayesian Surprise
+
+Bayesian Surprise measures how much our beliefs change after observing data. Mathematically, it computes the KL-divergence between prior and posterior distributions across a space of models:
+
+$$\text{Surprise} = D_{KL}(P(M|D) \| P(M)) = \sum_i P(M_i|D) \log \frac{P(M_i|D)}{P(M_i)}$$
+
+Higher surprise indicates observations that substantially change our beliefs.
+
+## Quick Start
+
+```{r setup}
+library(bayesiansurprise)
+library(sf)
+library(ggplot2)
+```
+
+### Basic Usage with sf Objects
+
+```{r basic-sf}
+# Load North Carolina SIDS data
+nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+
+# Compute surprise: observed SIDS cases vs expected (births)
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# View the result
+print(result)
+```
+
+### Plotting Results
+
+```{r plot-ggplot}
+# Plot surprise values with ggplot2
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise() +
+  labs(title = "Bayesian Surprise: NC SIDS Data (1974)")
+```
+
+```{r plot-signed}
+# Plot signed surprise (shows direction of deviation)
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging() +
+  labs(title = "Signed Surprise: Over/Under-representation")
+```
+
+## Understanding the Output
+
+The `surprise()` function returns an object containing:
+
+- **surprise**: Non-negative values indicating magnitude of surprise (in bits)
+- **signed_surprise**: Positive for over-representation, negative for under-representation
+- **model_space**: The models used and their posterior weights
+- **posteriors**: Per-observation posterior distributions
+
+```{r output-details}
+# Access surprise values directly
+get_surprise(result, "surprise")[1:5]
+
+# Access the model space
+get_model_space(result)
+```
+
+## Customizing Models
+
+By default, `surprise()` uses three models:
+- Uniform: All regions equally likely
+- Base Rate: Regions proportional to expected values
+- de Moivre Funnel: Accounts for sampling variance
+
+You can customize the model space:
+
+```{r custom-models}
+# Create custom model space
+custom_space <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(nc$BIR74),
+  bs_model_gaussian(),
+  prior = c(0.2, 0.5, 0.3)  # Custom prior weights
+)
+
+result_custom <- surprise(nc, observed = SID74, expected = BIR74,
+                          models = custom_space)
+print(result_custom)
+```
+
+## Next Steps
+
+- See `vignette("model-types")` for details on all five model types
+- See `vignette("sf-workflow")` for advanced spatial workflows
+- See `vignette("ggplot2-visualization")` for visualization options
+- See `vignette("temporal-analysis")` for time series and streaming data

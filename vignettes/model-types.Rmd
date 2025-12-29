@@ -1,0 +1,175 @@
+---
+title: "Understanding Model Types"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Understanding Model Types}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+```{r setup}
+library(bayesiansurprise)
+library(sf)
+```
+
+## Overview
+
+The `bayesiansurprise` package provides five model types that represent different hypotheses about how data might be distributed. Bayesian Surprise measures how much our beliefs about which model is correct change after observing data.
+
+## The Five Model Types
+
+### 1. Uniform Model (`bs_model_uniform`)
+
+The uniform model assumes all observations are equally likely regardless of any contextual factors.
+
+```{r uniform}
+model_uniform <- bs_model_uniform()
+print(model_uniform)
+```
+
+**Use when**: You want to detect any deviation from uniform distribution.
+
+**Likelihood**: Each observation has probability 1/n where n is the number of observations.
+
+### 2. Base Rate Model (`bs_model_baserate`)
+
+The base rate model assumes observations follow a known baseline distribution (e.g., population proportions).
+
+```{r baserate}
+nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+
+# Create base rate model from birth counts
+model_baserate <- bs_model_baserate(nc$BIR74)
+print(model_baserate)
+```
+
+**Use when**: You have expected values (population, baseline rates) and want to detect deviations from them.
+
+**Likelihood**: Probability proportional to expected values (normalized to sum to 1).
+
+### 3. Gaussian Model (`bs_model_gaussian`)
+
+The Gaussian model assumes observations follow a normal distribution, either with fixed parameters or fitted from the data.
+
+```{r gaussian}
+# Fit from data
+model_gaussian_fit <- bs_model_gaussian()
+
+# Fixed parameters
+model_gaussian_fixed <- bs_model_gaussian(mu = 100, sigma = 20, fit_from_data = FALSE)
+print(model_gaussian_fixed)
+```
+
+**Use when**: You expect data to follow a normal distribution and want to detect outliers.
+
+**Likelihood**: Based on normal PDF with given (or estimated) mean and standard deviation.
+
+### 4. Sampled/KDE Model (`bs_model_sampled`)
+
+The sampled model uses kernel density estimation (KDE) to create an empirical distribution from the data itself.
+
+```{r sampled}
+# Sample 20% of data for KDE
+model_sampled <- bs_model_sampled(sample_frac = 0.2, kernel = "gaussian")
+print(model_sampled)
+```
+
+**Use when**: You want a data-driven baseline without parametric assumptions.
+
+**Likelihood**: Evaluated from kernel density estimate of sampled data.
+
+### 5. de Moivre Funnel Model (`bs_model_funnel`)
+
+The funnel model accounts for sampling variance, recognizing that smaller samples have higher natural variability.
+
+```{r funnel}
+# Create funnel model with sample sizes
+model_funnel <- bs_model_funnel(nc$BIR74, type = "count")
+print(model_funnel)
+```
+
+**Use when**: Observations come from samples of different sizes and you want to account for sampling error.
+
+**Likelihood**: Based on z-scores computed from expected standard error given sample size.
+
+## Combining Models: Model Space
+
+Models are combined into a "model space" with prior probabilities:
+
+```{r model-space}
+# Default model space (uniform + baserate + funnel)
+space_default <- default_model_space(nc$BIR74)
+print(space_default)
+```
+
+```{r custom-space}
+# Custom model space with explicit prior
+space_custom <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(nc$BIR74),
+  bs_model_gaussian(),
+  bs_model_funnel(nc$BIR74),
+  prior = c(0.1, 0.4, 0.2, 0.3),
+  names = c("Uniform", "Population", "Normal", "Funnel")
+)
+print(space_custom)
+```
+
+## How Models Affect Surprise
+
+Different model combinations highlight different aspects of the data:
+
+```{r comparison}
+# Only uniform model - highlights any non-uniform distribution
+result_uniform <- surprise(nc, observed = SID74,
+                          models = model_space(bs_model_uniform()))
+
+# Uniform + baserate - highlights deviation from population proportion
+result_pop <- surprise(nc, observed = SID74, expected = BIR74,
+                      models = model_space(
+                        bs_model_uniform(),
+                        bs_model_baserate(nc$BIR74)
+                      ))
+
+# Full default - accounts for sampling variance too
+result_full <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Compare max surprise values
+cat("Uniform only, max surprise:", max(result_uniform$surprise), "\n")
+cat("With base rate, max surprise:", max(result_pop$surprise), "\n")
+cat("Full model space, max surprise:", max(result_full$surprise), "\n")
+```
+
+## Posterior Model Weights
+
+After computing surprise, you can examine how beliefs about models have changed:
+
+```{r posteriors}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Prior weights
+cat("Prior:", result$model_space$prior, "\n")
+
+# Posterior weights (after seeing all data)
+cat("Posterior:", result$model_space$posterior, "\n")
+```
+
+## Guidelines for Model Selection
+
+| Scenario | Recommended Models |
+|----------|-------------------|
+| Raw counts, no baseline | Uniform, Gaussian |
+| Counts with population data | Uniform, Base Rate, Funnel |
+| Rates/proportions | Uniform, Base Rate |
+| Exploratory analysis | Default (all three) |
+| Small samples prevalent | Include Funnel |
+| Unknown distribution | Include Sampled/KDE |

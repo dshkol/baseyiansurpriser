@@ -1,0 +1,184 @@
+---
+title: "Spatial Data Workflows with sf"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Spatial Data Workflows with sf}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+```{r setup}
+library(bayesiansurprise)
+library(sf)
+library(ggplot2)
+```
+
+## Overview
+
+The `bayesiansurprise` package is designed for seamless integration with the `sf` package for spatial data. This vignette demonstrates workflows for analyzing spatial data.
+
+## Basic sf Workflow
+
+### Loading Spatial Data
+
+```{r load-data}
+# Load the NC SIDS dataset
+nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+
+# Examine the data
+head(nc[, c("NAME", "SID74", "BIR74", "SID79", "BIR79")])
+```
+
+### Computing Surprise
+
+The `surprise()` function automatically detects sf objects and uses the appropriate method:
+
+```{r compute}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Result is an sf object with surprise columns added
+class(result)
+names(result)[grepl("surprise", names(result))]
+```
+
+### Convenience Function: st_surprise
+
+For explicit sf workflows, use `st_surprise()`:
+
+```{r st-surprise}
+result2 <- st_surprise(nc, observed = SID74, expected = BIR74)
+
+# Identical results
+all.equal(result$surprise, result2$surprise)
+```
+
+## Accessing Results
+
+### Extracting Surprise Values
+
+```{r extract}
+# Get surprise values
+surprise_vals <- get_surprise(result, "surprise")
+head(surprise_vals)
+
+# Get signed surprise values
+signed_vals <- get_surprise(result, "signed")
+head(signed_vals)
+```
+
+### Accessing the Model Space
+
+```{r model-space}
+mspace <- get_model_space(result)
+print(mspace)
+```
+
+### Working with the sf Object
+
+The result is a full sf object, so all sf operations work:
+
+```{r sf-ops}
+# Filter high-surprise regions
+high_surprise <- result[result$surprise > median(result$surprise), ]
+cat("Regions with above-median surprise:", nrow(high_surprise), "\n")
+
+# Compute centroids
+centroids <- st_centroid(result)
+```
+
+## Visualization
+
+### ggplot2 Integration
+
+```{r ggplot-basic}
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise() +
+  labs(title = "Bayesian Surprise: NC SIDS 1974")
+```
+
+```{r ggplot-signed}
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging() +
+  labs(title = "Signed Surprise",
+       subtitle = "Red = over-representation, Blue = under-representation")
+```
+
+## Comparing Time Periods
+
+```{r compare}
+# Compute surprise for two time periods
+result_74 <- surprise(nc, observed = SID74, expected = BIR74)
+result_79 <- surprise(nc, observed = SID79, expected = BIR79)
+
+# Compare
+nc$surprise_74 <- result_74$surprise
+nc$surprise_79 <- result_79$surprise
+nc$surprise_change <- nc$surprise_79 - nc$surprise_74
+
+# Plot change
+ggplot(nc) +
+  geom_sf(aes(fill = surprise_change)) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                       name = "Change in\nSurprise") +
+  labs(title = "Change in Surprise: 1974 to 1979")
+```
+
+## Advanced: Custom Model Spaces
+
+```{r custom}
+# Create sophisticated model space
+custom_space <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(nc$BIR74),
+  bs_model_gaussian(),
+  bs_model_funnel(nc$BIR74),
+  prior = c(0.1, 0.3, 0.2, 0.4)
+)
+
+result_custom <- surprise(nc, observed = SID74, expected = BIR74,
+                          models = custom_space)
+
+# Examine posterior model weights
+cat("Prior:", custom_space$prior, "\n")
+cat("Posterior:", result_custom$model_space$posterior, "\n")
+```
+
+## Integration with dplyr
+
+```{r dplyr, eval=FALSE}
+library(dplyr)
+
+# Pipe-friendly workflow
+nc %>%
+  st_surprise(observed = SID74, expected = BIR74) %>%
+  filter(surprise > 0.5) %>%
+  select(NAME, surprise, signed_surprise, geometry)
+```
+
+## Tips for Large Datasets
+
+1. **Pre-compute expected values**: If expected values are expensive to compute, store them
+2. **Use appropriate models**: For very large datasets, the Sampled model with smaller `sample_frac` can be faster
+3. **Parallel processing**: The package is compatible with future/furrr for parallel computation
+
+```{r large-data, eval=FALSE}
+# For large spatial datasets
+result <- surprise(large_sf,
+                  observed = cases,
+                  expected = population,
+                  models = model_space(
+                    bs_model_uniform(),
+                    bs_model_baserate(large_sf$population)
+                  ))
+```

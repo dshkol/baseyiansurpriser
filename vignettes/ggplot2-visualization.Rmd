@@ -1,0 +1,195 @@
+---
+title: "Visualization with ggplot2"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Visualization with ggplot2}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+```{r setup}
+library(bayesiansurprise)
+library(sf)
+library(ggplot2)
+```
+
+## Overview
+
+The `bayesiansurprise` package provides seamless ggplot2 integration through custom scales and computed surprise values that can be mapped to aesthetics.
+
+## Loading Example Data
+
+```{r data}
+nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+```
+
+## Basic Workflow: Compute then Plot
+
+The recommended workflow is to compute surprise first, then use ggplot2:
+
+```{r basic}
+# Compute surprise
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Plot with ggplot2 using geom_sf
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise() +
+  labs(title = "Bayesian Surprise Map")
+```
+
+## Color Scales
+
+### Sequential Scale: scale_fill_surprise()
+
+For absolute surprise values (always positive):
+
+```{r scale-sequential}
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise(option = "inferno") +
+  labs(title = "Inferno Palette")
+```
+
+Available viridis options: "viridis", "magma", "plasma", "inferno", "cividis", "rocket", "mako", "turbo"
+
+```{r scale-options, fig.show='hold', out.width='50%'}
+p1 <- ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise(option = "viridis") +
+  labs(title = "Viridis")
+
+p2 <- ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise(option = "plasma") +
+  labs(title = "Plasma")
+
+p1
+p2
+```
+
+### Diverging Scale: scale_fill_surprise_diverging()
+
+For signed surprise (positive = over-representation, negative = under-representation):
+
+```{r scale-diverging}
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging() +
+  labs(title = "Diverging Scale for Signed Surprise")
+```
+
+Custom colors:
+
+```{r scale-diverging-custom}
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging(
+    low = "#2166AC",   # Blue
+    mid = "#F7F7F7",   # Light gray
+    high = "#B2182B"   # Red
+  ) +
+  labs(title = "Custom Diverging Colors")
+```
+
+### Binned Scale: scale_fill_surprise_binned()
+
+For discrete categories:
+
+```{r scale-binned}
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise_binned(n.breaks = 5) +
+  labs(title = "Binned Surprise Scale")
+```
+
+## Combining with Other ggplot2 Elements
+
+### Adding Labels
+
+```{r labels}
+# Top 5 most surprising counties
+top5 <- result[order(-result$surprise), ][1:5, ]
+
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  geom_sf_text(data = top5, aes(label = NAME), size = 3) +
+  scale_fill_surprise() +
+  labs(title = "Top 5 Most Surprising Counties Labeled")
+```
+
+### Faceting
+
+```{r facet}
+# Compare two time periods
+result74 <- surprise(nc, observed = SID74, expected = BIR74)
+result79 <- surprise(nc, observed = SID79, expected = BIR79)
+
+result74$period <- "1974-78"
+result79$period <- "1979-84"
+
+combined <- rbind(result74, result79)
+
+ggplot(combined) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise() +
+  facet_wrap(~period) +
+  labs(title = "Surprise by Time Period")
+```
+
+### Theme Customization
+
+```{r theme}
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise(name = "Surprise\n(bits)") +
+  labs(
+    title = "Bayesian Surprise: NC SIDS Data",
+    subtitle = "Identifying unexpectedly high/low SIDS rates",
+    caption = "Data: NC SIDS 1974-78"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.key.width = unit(2, "cm")
+  )
+```
+
+## Non-Spatial Data
+
+For non-spatial data, use standard ggplot2 geoms after computing surprise:
+
+```{r non-spatial}
+# Create example data
+df <- data.frame(
+  region = LETTERS[1:10],
+  observed = c(50, 120, 80, 200, 45, 150, 90, 180, 60, 110),
+  expected = c(100, 100, 100, 100, 100, 100, 100, 100, 100, 100) * 10
+)
+
+result_df <- surprise(df, observed = observed, expected = expected)
+
+ggplot(result_df, aes(x = reorder(region, -surprise), y = surprise)) +
+  geom_col(aes(fill = surprise)) +
+  scale_fill_surprise() +
+  labs(x = "Region", y = "Surprise (bits)",
+       title = "Surprise by Region") +
+  theme_minimal()
+```
+
+## Best Practices
+
+1. **Use diverging scales for signed surprise**: Makes interpretation intuitive
+2. **Consider binned scales for communication**: Discrete categories are easier to read
+3. **Label notable regions**: Help viewers identify specific areas
+4. **Include a legend title with units**: "Surprise (bits)" clarifies the measure
+5. **Use minimal themes for maps**: Reduce visual clutter

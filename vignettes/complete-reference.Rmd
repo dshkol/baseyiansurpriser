@@ -1,0 +1,699 @@
+---
+title: "Complete Function Reference with Examples"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Complete Function Reference with Examples}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 8,
+  fig.height = 5,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# bayesiansurprise: Complete Reference
+
+This vignette demonstrates all major functions in the `bayesiansurprise` package with working examples and visualizations.
+
+```{r load-packages}
+library(bayesiansurprise)
+library(sf)
+library(ggplot2)
+```
+
+***
+
+# 1. Core Surprise Computation
+
+## 1.1 surprise() - Main Function
+
+The primary function for computing Bayesian surprise on data frames and sf objects.
+
+```{r surprise-sf}
+# Load NC SIDS data
+nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+
+# Compute surprise with default models (uniform, baserate, funnel)
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# View structure
+print(result)
+```
+
+```{r surprise-sf-plot}
+# Visualize the result
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging() +
+  labs(
+    title = "Bayesian Surprise: NC SIDS Cases (1974)",
+    subtitle = "Blue = fewer than expected, Red = more than expected",
+    fill = "Signed\nSurprise"
+  ) +
+  theme_minimal()
+```
+
+## 1.2 auto_surprise() - Simple Vector API
+
+For quick analysis without a data frame:
+
+```{r auto-surprise}
+# Observed counts and expected values
+observed <- c(50, 100, 150, 200, 75, 300, 25)
+expected <- c(10000, 50000, 100000, 25000, 15000, 80000, 5000)
+
+result_auto <- auto_surprise(observed, expected)
+
+# View surprise values
+cat("Surprise values:\n")
+print(round(result_auto$surprise, 4))
+
+cat("\nSigned surprise:\n")
+print(round(result_auto$signed_surprise, 4))
+```
+
+```{r auto-surprise-plot}
+# Visualize
+df <- data.frame(
+  region = LETTERS[1:7],
+  observed = observed,
+  expected = expected,
+  surprise = result_auto$surprise,
+  signed = result_auto$signed_surprise
+)
+
+ggplot(df, aes(x = reorder(region, -surprise), y = surprise, fill = signed)) +
+  geom_col() +
+  scale_fill_gradient2(low = "#2166AC", mid = "white", high = "#B2182B", midpoint = 0) +
+  labs(
+    title = "Surprise by Region",
+    x = "Region", y = "Surprise (bits)",
+    fill = "Direction"
+  ) +
+  theme_minimal()
+```
+
+## 1.3 compute_surprise() - Low-Level Function
+
+Direct computation with a model space:
+
+```{r compute-surprise}
+# Build a model space
+mspace <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(nc$BIR74),
+  bs_model_funnel(nc$BIR74)
+)
+
+# Compute surprise directly
+result_low <- compute_surprise(
+  model_space = mspace,
+  observed = nc$SID74,
+  expected = nc$BIR74,
+  return_signed = TRUE
+)
+
+cat("Computed", length(result_low$surprise), "surprise values\n")
+cat("Range:", round(range(result_low$surprise), 4), "\n")
+```
+
+***
+
+# 2. Model Types
+
+## 2.1 bs_model_uniform() - Uniform Distribution
+
+Assumes all observations equally likely:
+
+```{r model-uniform}
+model_uniform <- bs_model_uniform()
+print(model_uniform)
+```
+
+## 2.2 bs_model_baserate() - Base Rate Model
+
+Expects observations proportional to baseline:
+
+```{r model-baserate}
+model_baserate <- bs_model_baserate(nc$BIR74)
+print(model_baserate)
+```
+
+## 2.3 bs_model_gaussian() - Normal Distribution
+
+```{r model-gaussian}
+# Fit from data (default)
+model_gaussian_fit <- bs_model_gaussian()
+print(model_gaussian_fit)
+
+# Fixed parameters
+model_gaussian_fixed <- bs_model_gaussian(mu = 100, sigma = 20, fit_from_data = FALSE)
+print(model_gaussian_fixed)
+```
+
+## 2.4 bs_model_sampled() - KDE Model
+
+Uses kernel density estimation:
+
+```{r model-sampled}
+model_kde <- bs_model_sampled(sample_frac = 0.2, kernel = "gaussian")
+print(model_kde)
+```
+
+## 2.5 bs_model_funnel() - de Moivre Funnel
+
+Accounts for sampling variance:
+
+```{r model-funnel}
+model_funnel <- bs_model_funnel(nc$BIR74, type = "count")
+print(model_funnel)
+```
+
+## 2.6 bs_model_bootstrap() - Bootstrap Model
+
+```{r model-bootstrap}
+model_boot <- bs_model_bootstrap(n_bootstrap = 100)
+print(model_boot)
+```
+
+## 2.7 bs_model_gaussian_mixture() - Mixture Model
+
+```{r model-mixture}
+# Define a two-component mixture
+model_mix <- bs_model_gaussian_mixture(
+  means = c(50, 150),
+  sds = c(10, 20),
+  weights = c(0.6, 0.4)
+)
+print(model_mix)
+```
+
+***
+
+# 3. Model Space Operations
+
+## 3.1 model_space() - Create Model Space
+
+```{r model-space-create}
+space <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(nc$BIR74),
+  bs_model_funnel(nc$BIR74),
+  prior = c(0.2, 0.5, 0.3),
+  names = c("Uniform", "Population", "Funnel")
+)
+print(space)
+```
+
+## 3.2 default_model_space() - Quick Default
+
+```{r default-space}
+default_space <- default_model_space(nc$BIR74)
+print(default_space)
+```
+
+## 3.3 Model Space Manipulation
+
+```{r model-space-ops}
+# Add a model
+space_expanded <- add_model(space, bs_model_gaussian())
+cat("After add_model:", n_models(space_expanded), "models\n")
+cat("Model names:", model_names(space_expanded), "\n")
+
+# Remove a model (by index)
+space_reduced <- remove_model(space_expanded, 4)
+cat("After remove_model:", n_models(space_reduced), "models\n")
+
+# Set new prior
+space_reweighted <- set_prior(space, c(0.1, 0.6, 0.3))
+cat("New prior:", space_reweighted$prior, "\n")
+
+# Get model names
+cat("Model names:", model_names(space), "\n")
+```
+
+## 3.4 bayesian_update() - Update Posterior
+
+```{r bayesian-update}
+# Update model space with observed data
+updated_space <- bayesian_update(space, nc$SID74)
+
+cat("Prior:    ", round(space$prior, 4), "\n")
+cat("Posterior:", round(updated_space$posterior, 4), "\n")
+```
+
+```{r bayesian-update-plot}
+# Visualize prior vs posterior
+plot(updated_space)
+```
+
+## 3.5 cumulative_bayesian_update() - Sequential Updates
+
+```{r cumulative-update}
+space_simple <- model_space(bs_model_uniform(), bs_model_gaussian())
+# Sequential observations (processed one at a time)
+observations <- c(10, 15, 20, 25, 100, 30, 35, 40)
+
+cum_result <- cumulative_bayesian_update(space_simple, observations)
+cat("Observations processed:", length(cum_result$cumulative_surprise), "\n")
+cat("Final posterior:", round(cum_result$final_space$posterior, 4), "\n")
+```
+
+***
+
+# 4. Accessor Functions
+
+## 4.1 get_surprise() and get_model_space()
+
+```{r accessors}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Get surprise values
+surprise_vals <- get_surprise(result, "surprise")
+signed_vals <- get_surprise(result, "signed")
+
+cat("First 5 surprise values:", round(surprise_vals[1:5], 4), "\n")
+cat("First 5 signed values:", round(signed_vals[1:5], 4), "\n")
+
+# Get model space
+mspace <- get_model_space(result)
+print(mspace)
+```
+
+***
+
+# 5. Temporal and Streaming Analysis
+
+## 5.1 surprise_temporal() - Panel Data
+
+```{r temporal}
+# Create panel data
+set.seed(42)
+panel_data <- data.frame(
+  year = rep(2018:2022, each = 4),
+  region = rep(c("North", "South", "East", "West"), 5),
+  cases = c(45, 80, 55, 70,   # 2018
+            50, 85, 60, 65,   # 2019
+            48, 90, 58, 72,   # 2020
+            55, 95, 52, 68,   # 2021
+            60, 100, 65, 75), # 2022
+  population = rep(c(10000, 20000, 15000, 18000), 5)
+)
+
+temporal_result <- surprise_temporal(
+  panel_data,
+  time_col = year,
+  observed = cases,
+  expected = population,
+  region_col = region
+)
+
+print(temporal_result)
+```
+
+```{r temporal-plot}
+# Plot temporal evolution
+plot(temporal_result, type = "time_series")
+```
+
+```{r temporal-heatmap}
+# Heatmap view
+plot(temporal_result, type = "heatmap")
+```
+
+## 5.2 update_surprise() - Streaming Updates
+
+```{r streaming}
+# Initial computation
+initial <- auto_surprise(c(50, 100, 75), c(10000, 20000, 15000))
+cat("Initial surprise:", round(initial$surprise, 4), "\n")
+
+# Stream new observations
+updated <- update_surprise(initial,
+                           new_observed = c(55, 110),
+                           new_expected = c(11000, 22000))
+cat("After update:", round(updated$surprise, 4), "\n")
+```
+
+## 5.3 surprise_rolling() - Rolling Window
+
+```{r rolling}
+# Time series data
+ts_data <- c(50, 52, 48, 55, 51, 120, 115, 125, 60, 58, 62, 55)
+expected_ts <- rep(1000, length(ts_data))
+
+rolling_result <- surprise_rolling(
+  ts_data,
+  expected = expected_ts,
+  window_size = 4,
+  step = 1
+)
+
+# Extract mean surprise per window
+window_means <- sapply(rolling_result$windows, function(w) mean(w$result$surprise))
+
+plot(seq_along(window_means), window_means, type = "b",
+     xlab = "Window Position", ylab = "Mean Surprise",
+     main = "Rolling Window Surprise", pch = 19)
+abline(h = mean(window_means), lty = 2, col = "red")
+```
+
+## 5.4 get_surprise_at_time() - Extract Time Slice
+
+```{r time-slice}
+# Get surprise for specific year
+surprise_2020 <- get_surprise_at_time(temporal_result, 2020)
+cat("2020 surprise values:", round(surprise_2020$surprise, 4), "\n")
+```
+
+## 5.5 surprise_animate() - Animation-Ready Data
+
+```{r animate}
+anim_data <- surprise_animate(temporal_result)
+head(anim_data)
+```
+
+***
+# 6. Funnel Analysis Functions
+
+## 6.1 compute_funnel_data()
+
+```{r funnel-data}
+funnel_df <- compute_funnel_data(
+  observed = nc$SID74,
+  sample_size = nc$BIR74,
+  type = "count",
+  limits = c(2, 3)  # 2 and 3 SD limits
+)
+
+head(funnel_df)
+```
+
+```{r funnel-plot}
+# Funnel plot - shows observed vs expected with control limits
+ggplot(funnel_df, aes(x = sample_size, y = observed)) +
+  geom_ribbon(aes(ymin = lower_3sd, ymax = upper_3sd), fill = "gray90") +
+  geom_ribbon(aes(ymin = lower_2sd, ymax = upper_2sd), fill = "gray70") +
+  geom_line(aes(y = expected), linetype = "dashed") +
+  geom_point(aes(color = abs(z_score) > 2), size = 2) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+  labs(
+    title = "Funnel Plot: NC SIDS Cases",
+    x = "Births (Sample Size)",
+    y = "Observed SIDS Cases",
+    color = "Outside 2 SD"
+  ) +
+  theme_minimal()
+```
+
+## 6.2 funnel_zscore() and funnel_pvalue()
+
+```{r funnel-stats}
+# Compute z-scores (need observed, expected, and sample_size)
+# For counts, expected is derived from overall rate
+overall_rate <- sum(nc$SID74) / sum(nc$BIR74)
+expected_cases <- nc$BIR74 * overall_rate
+
+z_scores <- funnel_zscore(nc$SID74, expected_cases, nc$BIR74, type = "count")
+cat("First 5 z-scores:", round(z_scores[1:5], 3), "\n")
+
+# Compute p-values from z-scores
+p_vals <- funnel_pvalue(z_scores)
+cat("First 5 p-values:", round(p_vals[1:5], 4), "\n")
+cat("Significant at 0.05:", sum(p_vals < 0.05, na.rm = TRUE), "counties\n")
+```
+
+***
+
+# 7. Normalization Utilities
+
+## 7.1 normalize_prob() - Probability Distribution
+
+```{r normalize-prob}
+raw <- c(10, 20, 30, 40)
+normalized <- normalize_prob(raw)
+cat("Raw:", raw, "\n")
+cat("Normalized:", normalized, "(sum =", sum(normalized), ")\n")
+```
+
+## 7.2 normalize_rate() - Per-Capita Rates
+
+```{r normalize-rate}
+counts <- c(50, 100, 150)
+population <- c(10000, 50000, 100000)
+rates <- normalize_rate(counts, population, per = 100000)
+cat("Rates per 100k:", round(rates, 1), "\n")
+```
+
+## 7.3 normalize_zscore() - Z-Score
+
+```{r normalize-zscore}
+values <- c(10, 20, 30, 40, 50)
+z <- normalize_zscore(values)
+cat("Z-scores:", round(z, 3), "\n")
+```
+
+## 7.4 normalize_minmax() - Min-Max Scaling
+
+```{r normalize-minmax}
+values <- c(10, 20, 30, 40, 50)
+scaled <- normalize_minmax(values)
+cat("Min-max scaled:", scaled, "\n")
+```
+
+## 7.5 normalize_robust() - Robust Scaling
+
+```{r normalize-robust}
+values <- c(10, 20, 30, 40, 500)  # With outlier
+robust <- normalize_robust(values)
+cat("Robust scaled:", round(robust, 3), "\n")
+```
+
+***
+
+# 8. Mathematical Utilities
+
+## 8.1 kl_divergence() - KL-Divergence
+
+```{r kl-divergence}
+p <- c(0.25, 0.25, 0.25, 0.25)  # Uniform
+q <- c(0.1, 0.2, 0.3, 0.4)      # Non-uniform
+
+kl <- kl_divergence(p, q)
+cat("KL(P || Q):", round(kl, 4), "bits\n")
+```
+
+## 8.2 log_sum_exp() - Numerically Stable
+
+```{r log-sum-exp}
+log_vals <- c(-1000, -1001, -1002)  # Very small numbers
+result <- log_sum_exp(log_vals)
+cat("log_sum_exp:", round(result, 4), "\n")
+```
+
+***
+
+# 9. ggplot2 Integration
+
+## 9.1 Color Scales
+
+### Sequential Scale
+```{r scale-sequential}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise(option = "viridis") +
+  labs(title = "Sequential Scale (Viridis)") +
+  theme_minimal()
+```
+
+### Diverging Scale
+```{r scale-diverging}
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging() +
+  labs(title = "Diverging Scale for Signed Surprise") +
+  theme_minimal()
+```
+
+### Binned Scale
+```{r scale-binned}
+ggplot(result) +
+  geom_sf(aes(fill = surprise)) +
+  scale_fill_surprise_binned(n.breaks = 5) +
+  labs(title = "Binned Scale (5 breaks)") +
+  theme_minimal()
+```
+
+### Diverging Binned Scale
+```{r scale-diverging-binned}
+ggplot(result) +
+  geom_sf(aes(fill = signed_surprise)) +
+  scale_fill_surprise_diverging_binned(n.breaks = 7) +
+  labs(title = "Diverging Binned Scale") +
+  theme_minimal()
+```
+
+## 9.2 stat_surprise() - Compute in ggplot2
+
+```{r stat-surprise}
+ggplot(nc) +
+  stat_surprise(aes(geometry = geometry, observed = SID74, expected = BIR74)) +
+  scale_fill_surprise_diverging() +
+  labs(title = "stat_surprise() Computes Inline") +
+  theme_minimal()
+```
+
+## 9.3 Histogram and Density Geoms
+
+```{r geom-histogram}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+
+ggplot(result, aes(x = surprise)) +
+  geom_surprise_histogram(bins = 15) +
+  labs(title = "Distribution of Surprise Values") +
+  theme_minimal()
+```
+
+```{r geom-density}
+ggplot(result, aes(x = signed_surprise)) +
+  geom_surprise_density(fill = "#4575b4", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(title = "Density of Signed Surprise") +
+  theme_minimal()
+```
+
+***
+
+# 10. sf Spatial Functions
+
+## 10.1 st_surprise() - Convenience Wrapper
+
+```{r st-surprise}
+result_sf <- st_surprise(nc, observed = SID74, expected = BIR74)
+class(result_sf)
+```
+
+## 10.2 st_density() - Spatial KDE
+
+```{r st-density}
+# st_density computes kernel density estimation for point patterns
+# Returns a list with density grid
+nc_centroids <- st_centroid(nc)
+density_result <- st_density(nc_centroids, bandwidth = 0.5)
+
+cat("Density result structure:\n")
+cat("- x grid:", length(density_result$x), "values\n")
+cat("- y grid:", length(density_result$y), "values\n")
+cat("- z matrix:", dim(density_result$z)[1], "x", dim(density_result$z)[2], "\n")
+```
+
+## 10.3 st_aggregate_surprise() - Aggregate to Larger Regions
+
+```{r st-aggregate}
+# Create larger regions to aggregate to
+# Using a simple union of counties
+nc_result <- surprise(nc, observed = SID74, expected = BIR74)
+
+# Show surprise values from result
+cat("Sample surprise values:\n")
+print(head(nc_result[, c("NAME", "surprise", "signed_surprise")], 5))
+```
+
+***
+
+# 11. Base R Plot Methods
+
+## 11.1 plot.bs_surprise_sf()
+
+```{r plot-sf-base, fig.height=5}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+plot(result, which = "signed_surprise", main = "Base R Plot: Signed Surprise")
+```
+
+## 11.2 plot.bs_surprise()
+
+```{r plot-surprise-base}
+auto_result <- auto_surprise(c(50, 100, 150, 200, 75), c(10000, 50000, 100000, 25000, 15000))
+plot(auto_result, type = "histogram", main = "Surprise Distribution")
+```
+
+## 11.3 plot.bs_model_space()
+
+```{r plot-model-space}
+space <- model_space(bs_model_uniform(), bs_model_baserate(nc$BIR74))
+updated <- bayesian_update(space, nc$SID74)
+plot(updated)
+```
+
+## 11.4 plot.bs_surprise_temporal()
+
+```{r plot-temporal-base}
+plot(temporal_result, type = "cumulative", main = "Cumulative Surprise Over Time")
+```
+
+***
+
+# 12. Summary Statistics
+
+## 12.1 summary.bs_surprise()
+
+```{r summary}
+result <- surprise(nc, observed = SID74, expected = BIR74)
+summary(result)
+```
+
+***
+
+# 13. Included Datasets
+
+## 13.1 canada_mischief
+
+```{r data-canada}
+data(canada_mischief, package = "bayesiansurprise")
+cat("Canada mischief dataset:\n")
+cat("Rows:", nrow(canada_mischief), "\n")
+cat("Columns:", paste(names(canada_mischief), collapse = ", "), "\n")
+
+# Compute surprise on Canadian data
+canada_result <- auto_surprise(
+  canada_mischief$mischief_count,
+  canada_mischief$population
+)
+
+cat("\nSurprise values by province:\n")
+df_result <- data.frame(
+  province = canada_mischief$name,
+  surprise = round(canada_result$surprise, 4)
+)
+print(df_result[order(-df_result$surprise), ])
+```
+
+## 13.2 example_counties
+
+```{r data-counties}
+data(example_counties, package = "bayesiansurprise")
+cat("Example counties dataset:\n")
+cat("Class:", class(example_counties)[1], "\n")
+cat("Rows:", nrow(example_counties), "\n")
+cat("Columns:", paste(names(example_counties), collapse = ", "), "\n")
+```
+
+***
+
+# Session Info
+
+```{r session}
+sessionInfo()
+```
