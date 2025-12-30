@@ -57,8 +57,8 @@ bs_model_funnel <- function(sample_size,
                              name = NULL) {
   type <- match.arg(type)
 
-  if (length(sample_size) == 0) {
-    cli_abort("{.arg sample_size} cannot be empty.")
+  if (is.null(sample_size) || length(sample_size) == 0) {
+    cli_abort("{.arg sample_size} cannot be NULL or empty.")
   }
 
   likelihood_fn <- function(observed, region_idx = NULL, ...) {

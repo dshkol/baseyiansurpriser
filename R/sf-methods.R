@@ -242,6 +242,11 @@ interpolate_2d <- function(x_grid, y_grid, z_matrix, x_pt, y_pt) {
 #'
 #' @return sf object with aggregated surprise values
 #'
+#' @note This function is experimental. Currently returns spatially joined
+#'   data without full aggregation. For complex aggregations, use dplyr
+#'   or data.table after retrieving the joined data.
+#'
+#' @keywords internal
 #' @export
 st_aggregate_surprise <- function(x, to, fun = weighted.mean, weight_col = NULL) {
   if (!inherits(x, "bs_surprise_sf")) {

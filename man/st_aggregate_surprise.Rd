@@ -22,3 +22,9 @@ sf object with aggregated surprise values
 Aggregates surprise values from smaller regions to larger regions,
 using spatial joins.
 }
+\note{
+This function is experimental. Currently returns spatially joined
+data without full aggregation. For complex aggregations, use dplyr
+or data.table after retrieving the joined data.
+}
+\keyword{internal}

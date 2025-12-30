@@ -16,6 +16,8 @@
 #' @param bandwidth Bandwidth selection method or numeric value.
 #'   If character, one of: "nrd0", "nrd", "ucv", "bcv", "SJ".
 #'   If numeric, used directly as bandwidth.
+#' @param n_grid Number of points in the density estimation grid (default: 512).
+#'   Higher values give smoother estimates but use more memory.
 #' @param sample_indices Integer vector of specific indices to use for building prior.
 #'   Overrides `sample_frac` if provided.
 #' @param name Optional name for the model
@@ -48,6 +50,7 @@
 bs_model_sampled <- function(sample_frac = NULL,
                               kernel = "gaussian",
                               bandwidth = "nrd0",
+                              n_grid = 512,
                               sample_indices = NULL,
                               name = NULL) {
 
@@ -88,7 +91,7 @@ bs_model_sampled <- function(sample_frac = NULL,
     }
 
     dens <- stats::density(train_data, bw = bw, kernel = kernel,
-                            n = 512, from = min(train_data) - 3 * bw,
+                            n = n_grid, from = min(train_data) - 3 * bw,
                             to = max(train_data) + 3 * bw)
 
     if (!is.null(region_idx)) {

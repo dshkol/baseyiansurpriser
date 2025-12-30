@@ -8,6 +8,7 @@ bs_model_sampled(
   sample_frac = NULL,
   kernel = "gaussian",
   bandwidth = "nrd0",
+  n_grid = 512,
   sample_indices = NULL,
   name = NULL
 )
@@ -23,6 +24,9 @@ One of: "gaussian", "epanechnikov", "rectangular", "triangular", "biweight",
 \item{bandwidth}{Bandwidth selection method or numeric value.
 If character, one of: "nrd0", "nrd", "ucv", "bcv", "SJ".
 If numeric, used directly as bandwidth.}
+
+\item{n_grid}{Number of points in the density estimation grid (default: 512).
+Higher values give smoother estimates but use more memory.}
 
 \item{sample_indices}{Integer vector of specific indices to use for building prior.
 Overrides \code{sample_frac} if provided.}
