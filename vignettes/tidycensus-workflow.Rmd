@@ -1,0 +1,552 @@
+---
+title: "Bayesian Surprise with US Census Data (tidycensus)"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    toc_depth: 3
+vignette: >
+  %\VignetteIndexEntry{Bayesian Surprise with US Census Data (tidycensus)}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 8,
+  fig.height = 6,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Introduction
+
+This vignette demonstrates how to use the `bayesiansurprise` package with US Census
+data accessed through the `tidycensus` package. Census data is an ideal testbed
+for Bayesian Surprise because it provides both observed counts (events, demographics)
+and population bases (expected values) at multiple geographic levels.
+
+The Bayesian Surprise methodology from Correll & Heer (2017) helps identify
+geographic areas that are statistically surprising relative to our prior
+expectations, while accounting for sampling variation and base rate effects.
+
+## Prerequisites
+
+You'll need a Census API key from https://api.census.gov/data/key_signup.html
+
+```{r load-packages}
+library(bayesiansurprise)
+library(tidycensus)
+library(tigris)
+library(sf)
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+
+# Set your Census API key (do this once)
+# census_api_key("YOUR_KEY_HERE", install = TRUE)
+```
+
+***
+
+# Example 1: Poverty Rates by County
+
+Let's examine poverty rates across US counties. We'll identify which counties
+have surprisingly high or low poverty rates relative to what we'd expect given
+population size and national baselines.
+
+## Fetch Census Data
+
+```{r fetch-poverty-data}
+# Get poverty data for all US counties
+# B17001_001: Total population for poverty status
+# B17001_002: Population below poverty level
+poverty_data <- get_acs(
+  geography = "county",
+  variables = c(
+    total_pop = "B17001_001",
+    in_poverty = "B17001_002"
+  ),
+  year = 2022,
+  survey = "acs5",
+  geometry = TRUE,
+  output = "wide"
+) %>%
+  shift_geometry()  # Shift AK/HI for better visualization
+
+# Clean up the data
+poverty_data <- poverty_data %>%
+  filter(!is.na(in_povertyE) & !is.na(total_popE)) %>%
+  filter(total_popE > 0) %>%
+  mutate(
+    poverty_rate = in_povertyE / total_popE,
+    state = substr(GEOID, 1, 2)
+  )
+
+head(poverty_data)
+```
+
+## Compute Bayesian Surprise
+
+Now we compute surprise using the poverty counts as observed values and
+total population as the baseline for expected values.
+
+```{r compute-poverty-surprise}
+# Compute surprise for poverty data
+poverty_surprise <- surprise(
+  poverty_data,
+  observed = in_povertyE,
+  expected = total_popE,
+  models = c("uniform", "baserate", "funnel")
+)
+
+# View the result
+print(poverty_surprise)
+summary(poverty_surprise)
+```
+
+## Visualize Surprising Counties
+
+```{r plot-poverty-surprise, fig.height=8}
+# Plot signed surprise
+plot(poverty_surprise, which = "signed")
+```
+
+```{r poverty-surprise-ggplot, fig.width=10, fig.height=7}
+# Extract surprise values and join back
+poverty_data$surprise <- get_surprise(poverty_surprise, "surprise")
+poverty_data$signed_surprise <- get_surprise(poverty_surprise, "signed")
+
+# Plot with ggplot2 - shift_geometry() already positioned AK/HI
+# Using scale_fill_surprise_thresholds() for meaningful interpretation
+ggplot(poverty_data) +
+  geom_sf(aes(fill = signed_surprise), color = "white", linewidth = 0.05) +
+  scale_fill_surprise_thresholds() +
+  labs(
+    title = "Surprising Poverty Rates by US County",
+    subtitle = "Red = Higher than expected | Blue = Lower than expected",
+    caption = "Source: ACS 2018-2022 5-Year Estimates"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+## Identify Most Surprising Counties
+
+```{r top-surprise-counties}
+# Top 10 counties with surprisingly HIGH poverty
+high_poverty <- poverty_data %>%
+  st_drop_geometry() %>%
+  filter(signed_surprise > 0) %>%
+  arrange(desc(surprise)) %>%
+  select(NAME, poverty_rate, total_popE, surprise, signed_surprise) %>%
+  head(10)
+
+cat("Counties with SURPRISINGLY HIGH poverty rates:\n")
+print(high_poverty)
+
+# Top 10 counties with surprisingly LOW poverty
+low_poverty <- poverty_data %>%
+  st_drop_geometry() %>%
+  filter(signed_surprise < 0) %>%
+  arrange(desc(surprise)) %>%
+  select(NAME, poverty_rate, total_popE, surprise, signed_surprise) %>%
+  head(10)
+
+cat("\nCounties with SURPRISINGLY LOW poverty rates:\n")
+print(low_poverty)
+```
+
+***
+
+# Example 2: Educational Attainment
+
+Let's examine college degree attainment and identify counties with surprisingly
+high or low rates of bachelor's degree holders.
+
+```{r fetch-education-data}
+# B15003_022: Bachelor's degree
+# B15003_001: Total population 25 and over
+education_data <- get_acs(
+  geography = "county",
+  variables = c(
+    total_25plus = "B15003_001",
+    bachelors = "B15003_022"
+  ),
+  year = 2022,
+  survey = "acs5",
+  geometry = TRUE,
+  output = "wide"
+) %>%
+  shift_geometry()  # Shift AK/HI for better visualization
+
+education_data <- education_data %>%
+  filter(!is.na(bachelorsE) & !is.na(total_25plusE)) %>%
+  filter(total_25plusE > 0) %>%
+  mutate(
+    degree_rate = bachelorsE / total_25plusE,
+    state = substr(GEOID, 1, 2)
+  )
+```
+
+```{r education-surprise, fig.width=10, fig.height=7}
+# Compute surprise
+edu_surprise <- surprise(
+  education_data,
+  observed = bachelorsE,
+  expected = total_25plusE,
+  models = c("uniform", "baserate", "funnel")
+)
+
+education_data$signed_surprise <- get_surprise(edu_surprise, "signed")
+
+# Plot - shift_geometry() already positioned AK/HI
+ggplot(education_data) +
+  geom_sf(aes(fill = signed_surprise), color = "white", linewidth = 0.05) +
+  scale_fill_surprise_thresholds() +
+  labs(
+    title = "Surprising Bachelor's Degree Rates by County",
+    subtitle = "Red = Higher than expected | Blue = Lower than expected",
+    caption = "Source: ACS 2018-2022 5-Year Estimates"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+***
+
+# Example 3: State-Level Analysis with Funnel Plot
+
+Funnel plots are particularly useful for visualizing surprise and identifying
+outliers while accounting for sample size variation.
+
+```{r state-poverty-funnel}
+# Get state-level poverty data
+state_poverty <- get_acs(
+  geography = "state",
+  variables = c(
+    total_pop = "B17001_001",
+    in_poverty = "B17001_002"
+  ),
+  year = 2022,
+  survey = "acs5",
+  geometry = TRUE,
+  output = "wide"
+)
+
+state_poverty <- state_poverty %>%
+  filter(!is.na(in_povertyE) & !is.na(total_popE)) %>%
+  filter(total_popE > 0)
+
+# Compute funnel data for points
+funnel_df <- compute_funnel_data(
+  observed = state_poverty$in_povertyE,
+  sample_size = state_poverty$total_popE,
+  type = "count",
+  limits = c(2, 3)
+)
+funnel_df$state <- state_poverty$NAME
+funnel_df$rate <- funnel_df$observed / funnel_df$sample_size
+
+# National rate
+national_rate <- sum(state_poverty$in_povertyE) / sum(state_poverty$total_popE)
+
+# Create continuous funnel bands
+n_range <- range(state_poverty$total_popE)
+n_seq <- exp(seq(log(n_range[1] * 0.8), log(n_range[2] * 1.2), length.out = 200))
+se_seq <- sqrt(national_rate * (1 - national_rate) / n_seq)
+
+funnel_bands <- data.frame(
+  n = n_seq,
+  lower_2sd = national_rate - 2 * se_seq,
+  upper_2sd = national_rate + 2 * se_seq,
+  lower_3sd = national_rate - 3 * se_seq,
+  upper_3sd = national_rate + 3 * se_seq
+)
+
+# Create funnel plot
+ggplot() +
+  # 3 SD band (outer)
+  geom_ribbon(
+    data = funnel_bands,
+    aes(x = n, ymin = lower_3sd, ymax = upper_3sd),
+    fill = "#9ecae1", alpha = 0.5
+  ) +
+  # 2 SD band (inner)
+  geom_ribbon(
+    data = funnel_bands,
+    aes(x = n, ymin = lower_2sd, ymax = upper_2sd),
+    fill = "#3182bd", alpha = 0.5
+  ) +
+  # National average line
+  geom_hline(
+    yintercept = national_rate,
+    linetype = "dashed", color = "#636363", linewidth = 0.8
+  ) +
+  # Points
+  geom_point(
+    data = funnel_df,
+    aes(x = sample_size, y = rate, color = abs(z_score) > 2),
+    size = 3.5
+  ) +
+  # Labels for outliers
+  ggrepel::geom_text_repel(
+    data = funnel_df %>% filter(abs(z_score) > 2),
+    aes(x = sample_size, y = rate, label = state),
+    size = 3, fontface = "bold",
+    segment.color = "gray60"
+  ) +
+  scale_color_manual(
+    values = c("FALSE" = "#636363", "TRUE" = "#e6550d"),
+    guide = "none"
+  ) +
+  scale_x_continuous(labels = scales::comma) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Funnel Plot: State Poverty Rates",
+    subtitle = "States outside bands have surprising poverty rates given population size",
+    x = "Population (sample size)",
+    y = "Poverty Rate",
+    caption = "Source: ACS 2018-2022 5-Year Estimates"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+***
+
+# Example 4: Tract-Level Analysis
+
+For finer geographic detail, we can analyze census tracts within a
+metropolitan area.
+
+```{r tract-analysis}
+# Get tract-level data for a specific metro area (e.g., Chicago)
+chicago_tracts <- get_acs(
+  geography = "tract",
+  state = "IL",
+  county = "Cook",
+  variables = c(
+    total_pop = "B17001_001",
+    in_poverty = "B17001_002"
+  ),
+  year = 2022,
+  survey = "acs5",
+  geometry = TRUE,
+  output = "wide"
+)
+
+chicago_tracts <- chicago_tracts %>%
+  filter(!is.na(in_povertyE) & !is.na(total_popE)) %>%
+  filter(total_popE > 100)  # Filter out very small tracts
+
+# Compute surprise - use uniform and baserate only for local analysis
+# (funnel model absorbs too much variation at this scale)
+chicago_surprise <- surprise(
+  chicago_tracts,
+  observed = in_povertyE,
+  expected = total_popE,
+  models = c("uniform", "baserate")
+)
+
+chicago_tracts$signed_surprise <- get_surprise(chicago_surprise, "signed")
+
+# Plot Cook County
+ggplot(chicago_tracts) +
+  geom_sf(aes(fill = signed_surprise), color = "white", linewidth = 0.02) +
+  scale_fill_surprise_thresholds() +
+  labs(
+    title = "Surprising Poverty Patterns in Cook County, IL",
+    subtitle = "Census Tract Level | Red = Higher | Blue = Lower than expected",
+    caption = "Source: ACS 2018-2022 5-Year Estimates"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 9)
+  )
+```
+
+***
+
+# Example 5: Comparing Multiple Years
+
+We can compare surprise patterns across different ACS releases to see how
+patterns evolve over time. This example compares state-level poverty rates
+between 2017 and 2022.
+
+```{r temporal-analysis, eval=FALSE}
+# Get data for multiple years (requires API calls)
+years <- c(2017, 2022)
+
+state_data_list <- lapply(years, function(yr) {
+  df <- get_acs(
+    geography = "state",
+    variables = c(
+      total_pop = "B17001_001",
+      in_poverty = "B17001_002"
+    ),
+    year = yr,
+    survey = "acs5",
+    output = "wide"
+  )
+  df$year <- yr
+  df
+})
+
+# Combine and compute surprise for each year
+state_data_combined <- do.call(rbind, state_data_list)
+
+# Compute surprise separately for each year
+results_by_year <- lapply(years, function(yr) {
+  df <- state_data_combined[state_data_combined$year == yr, ]
+  df <- df[!is.na(df$in_povertyE) & df$total_popE > 0, ]
+
+  result <- surprise(
+    df,
+    observed = in_povertyE,
+    expected = total_popE,
+    models = c("uniform", "baserate", "funnel")
+  )
+
+  df$surprise <- get_surprise(result, "surprise")
+  df$signed_surprise <- get_surprise(result, "signed")
+  df
+})
+
+# Compare which states changed most between years
+comparison <- merge(
+  results_by_year[[1]][, c("GEOID", "NAME", "signed_surprise")],
+  results_by_year[[2]][, c("GEOID", "signed_surprise")],
+  by = "GEOID",
+  suffixes = c("_2017", "_2022")
+)
+comparison$change <- comparison$signed_surprise_2022 - comparison$signed_surprise_2017
+comparison[order(abs(comparison$change), decreasing = TRUE), ][1:10, ]
+```
+
+Note: This example is not evaluated because it requires multiple API calls.
+You can run it locally with your Census API key.
+
+***
+
+# Using ggplot2 stat_surprise
+
+For quick exploratory analysis, use `stat_surprise` with ggplot2:
+
+```{r stat-surprise-example, fig.width=10, fig.height=7}
+# Using the already-computed surprise values with geom_sf
+# shift_geometry() was already applied during data fetch
+ggplot(poverty_data) +
+  geom_sf(aes(fill = signed_surprise), color = "white", linewidth = 0.05) +
+  scale_fill_surprise_thresholds() +
+  labs(title = "Poverty Surprise Map (US Counties)") +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+***
+
+# Interpreting Surprise Values
+
+Understanding what surprise values mean is crucial for proper interpretation:
+| Surprise Magnitude | Interpretation | Meaning |
+|-------------------|----------------|---------|
+| < 0.1 | Trivial | Essentially as expected; data doesn't discriminate between models |
+| 0.1 - 0.3 | Minor | Small deviation; worth noting but not remarkable |
+| 0.3 - 0.5 | Moderate | Meaningful deviation that warrants attention |
+| 0.5 - 1.0 | Substantial | Genuinely surprising; strong evidence for deviation |
+| > 1.0 | High | Very surprising; the data strongly contradicts expectations |
+
+**Key insight**: Surprise measures how much the data discriminates between models, not
+just how far a rate is from average. A county with an unusual rate but average population
+may show low surprise because all models predict similar things for it. Conversely,
+a large county with a rate close to average may show high surprise if it strongly
+confirms or refutes the funnel model's predictions about sampling variation.
+
+```{r interpret-surprise}
+# Categorize counties by surprise level
+poverty_data <- poverty_data %>%
+  mutate(
+    surprise_category = cut(
+      abs(signed_surprise),
+      breaks = c(0, 0.1, 0.3, 0.5, 1.0, Inf),
+      labels = c("Trivial", "Minor", "Moderate", "Substantial", "High"),
+      include.lowest = TRUE
+    )
+  )
+
+# Summary by category
+cat("Counties by surprise level:\n")
+print(table(poverty_data$surprise_category))
+```
+
+***
+
+# Best Practices
+
+## Choosing the Right Geography Level
+
+- **State level**: Good for national overviews, but may miss local variation
+- **County level**: Balance of detail and manageability (~3,000 units)
+- **Tract level**: Fine-grained analysis, but computationally intensive
+
+## Handling Margins of Error
+
+ACS data includes margins of error. For robust analysis:
+
+```{r moe-handling}
+# Example: Filter to areas with reliable estimates
+reliable_data <- poverty_data %>%
+  mutate(
+    cv = in_povertyM / in_povertyE  # Coefficient of variation
+  ) %>%
+  filter(cv < 0.3)  # Keep estimates with CV < 30%
+
+cat("Original counties:", nrow(poverty_data), "\n")
+cat("Reliable counties:", nrow(reliable_data), "\n")
+```
+
+## Model Selection
+
+For Census data, we recommend:
+
+- **baserate**: Captures expected rates given the overall distribution
+- **funnel**: Accounts for population-based sampling variation
+- **uniform**: Provides a baseline comparison
+
+```{r custom-model-space}
+# Create a custom model space for Census analysis
+census_models <- model_space(
+  bs_model_uniform(),
+  bs_model_baserate(poverty_data$total_popE),
+  bs_model_funnel(poverty_data$total_popE)
+)
+
+print(census_models)
+```
+
+***
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```
