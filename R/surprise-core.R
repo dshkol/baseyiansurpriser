@@ -197,10 +197,21 @@ compute_surprise <- function(model_space,
     if (!is.null(contributions)) colnames(contributions) <- names(model_space$models)
   }
 
-  # Compute expected values if not provided (for signed surprise)
-  if (return_signed && is.null(expected)) {
-    # Use mean as default expected value
-    expected <- rep(mean(observed, na.rm = TRUE), n)
+
+  # Compute expected counts for signed surprise
+  # When expected is provided as population/sample size, compute expected counts
+  # as: expected_count[i] = population[i] * overall_rate
+  if (return_signed) {
+    if (is.null(expected)) {
+      # Use mean as default expected value
+      expected_for_sign <- rep(mean(observed, na.rm = TRUE), n)
+    } else {
+      # expected is population - compute expected counts at overall rate
+      overall_rate <- sum(observed, na.rm = TRUE) / sum(expected, na.rm = TRUE)
+      expected_for_sign <- expected * overall_rate
+    }
+  } else {
+    expected_for_sign <- NULL
   }
 
   prior <- model_space$prior
@@ -245,7 +256,7 @@ compute_surprise <- function(model_space,
 
     # Compute signed surprise
     if (return_signed) {
-      deviation <- observed[i] - expected[i]
+      deviation <- observed[i] - expected_for_sign[i]
       signed_values[i] <- sign(deviation) * surprise_values[i]
     }
   }

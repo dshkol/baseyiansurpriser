@@ -1,0 +1,21 @@
+# R build artifacts
+*.tar.gz
+*.Rcheck/
+..Rcheck/
+
+# Rendered vignette HTML (keep in vignettes/ but not docs/)
+vignettes/*.html
+docs/*.html
+
+# RStudio files
+.Rproj.user/
+*.Rproj
+
+# R history
+.Rhistory
+.RData
+.Ruserdata
+
+# OS files
+.DS_Store
+Thumbs.db

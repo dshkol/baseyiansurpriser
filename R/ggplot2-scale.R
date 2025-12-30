@@ -245,3 +245,88 @@ scale_fill_surprise_manual <- function(breaks = c(0.5, 1, 1.5, 2),
     ...
   )
 }
+
+#' Signed Surprise Scale with Meaningful Thresholds
+#'
+#' Diverging color scale for signed surprise with breaks at meaningful
+#' thresholds based on the interpretation of surprise values.
+#'
+#' @param breaks Numeric vector of break points. Default uses meaningful
+#'   thresholds: -1, -0.5, -0.1, 0.1, 0.5, 1 (symmetric around 0)
+#' @param palette ColorBrewer diverging palette. Default "RdBu".
+#' @param direction Palette direction. Default -1 (red = positive/higher).
+#' @param name Legend title
+#' @param na.value Color for NA values
+#' @param ... Additional arguments passed to scale
+#'
+#' @details
+#' Meaningful thresholds for interpreting signed surprise:
+#' \itemize{
+#'   \item \code{|surprise| < 0.1}: Trivial - essentially as expected
+#'   \item \code{|surprise| 0.1-0.5}: Minor to moderate deviation
+#'   \item \code{|surprise| 0.5-1.0}: Substantial - genuinely surprising
+#'   \item \code{|surprise| > 1.0}: High - very surprising
+#' }
+#'
+#' Positive values indicate higher than expected; negative indicate lower.
+#'
+#' @return A ggplot2 scale object
+#'
+#' @export
+#' @examples
+#' library(ggplot2)
+#' library(sf)
+#'
+#' nc <- st_read(system.file("shape/nc.shp", package = "sf"), quiet = TRUE)
+#' result <- surprise(nc, observed = SID74, expected = BIR74)
+#' nc$signed_surprise <- get_surprise(result, "signed")
+#'
+#' ggplot(nc) +
+#'   geom_sf(aes(fill = signed_surprise)) +
+#'   scale_fill_surprise_thresholds()
+scale_fill_surprise_thresholds <- function(
+    breaks = c(-1, -0.5, -0.1, 0.1, 0.5, 1),
+    palette = "RdBu",
+    direction = -1,
+    name = "Signed\nSurprise",
+    na.value = "grey80",
+    ...) {
+
+  # Get colors from RdBu palette
+  colors <- RColorBrewer::brewer.pal(length(breaks) + 1, palette)
+  if (direction == -1) colors <- rev(colors)
+
+  ggplot2::scale_fill_stepsn(
+    colors = colors,
+    breaks = breaks,
+    name = name,
+    na.value = na.value,
+    ...
+  )
+}
+
+#' @rdname scale_fill_surprise_thresholds
+#' @export
+scale_colour_surprise_thresholds <- function(
+    breaks = c(-1, -0.5, -0.1, 0.1, 0.5, 1),
+    palette = "RdBu",
+    direction = -1,
+    name = "Signed\nSurprise",
+    na.value = "grey80",
+    ...) {
+
+  colors <- RColorBrewer::brewer.pal(length(breaks) + 1, palette)
+  if (direction == -1) colors <- rev(colors)
+
+  ggplot2::scale_colour_stepsn(
+    colors = colors,
+    breaks = breaks,
+    name = name,
+    na.value = na.value,
+    ...
+  )
+}
+
+#' @rdname scale_fill_surprise_thresholds
+#' @export
+scale_color_surprise_thresholds <- scale_colour_surprise_thresholds

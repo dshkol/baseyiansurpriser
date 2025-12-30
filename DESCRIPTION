@@ -27,14 +27,19 @@ Imports:
     rlang (>= 1.1.0),
     cli,
     stats,
-    MASS
+    MASS,
+    RColorBrewer
 Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown,
     dplyr,
     tibble,
-    vdiffr
+    vdiffr,
+    tidycensus,
+    tigris,
+    cancensus,
+    ggrepel
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 LazyData: true
