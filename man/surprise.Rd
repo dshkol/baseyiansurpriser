@@ -26,6 +26,7 @@ surprise(
   models = c("uniform", "baserate", "funnel"),
   prior = NULL,
   signed = TRUE,
+  normalize_posterior = TRUE,
   ...
 )
 
@@ -37,6 +38,7 @@ surprise(
   models = c("uniform", "baserate", "funnel"),
   prior = NULL,
   signed = TRUE,
+  normalize_posterior = TRUE,
   ...
 )
 
@@ -67,6 +69,10 @@ Only used when \code{models} is a character vector or list.}
 \item{signed}{Logical; compute signed surprise?}
 
 \item{...}{Additional arguments passed to model likelihood functions}
+
+\item{normalize_posterior}{Logical; if TRUE (default), normalizes posteriors.
+If FALSE, uses unnormalized posteriors matching the original Correll & Heer
+(2017) JavaScript implementation. Use FALSE to replicate paper results exactly.}
 }
 \value{
 For data frames: the input with \code{surprise} (and optionally

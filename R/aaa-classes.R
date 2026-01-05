@@ -319,6 +319,7 @@ get_surprise.bs_surprise <- function(x, type = c("surprise", "signed"), ...) {
 
 #' @export
 get_surprise.bs_surprise_sf <- function(x, type = c("surprise", "signed"), ...) {
+
   type <- match.arg(type)
   result <- attr(x, "surprise_result")
   if (is.null(result)) {
@@ -328,6 +329,15 @@ get_surprise.bs_surprise_sf <- function(x, type = c("surprise", "signed"), ...) 
     return(x$surprise)
   }
   get_surprise.bs_surprise(result, type)
+}
+
+#' @export
+get_surprise.bs_surprise_df <- function(x, type = c("surprise", "signed"), ...) {
+  type <- match.arg(type)
+  if (type == "signed" && "signed_surprise" %in% names(x)) {
+    return(x$signed_surprise)
+  }
+  x$surprise
 }
 
 #' Get the model space from a surprise result

@@ -161,6 +161,9 @@ bayesian_update <- function(model_space, observed, region_idx = NULL, ...) {
 #' @param return_signed Logical; compute signed surprise?
 #' @param return_posteriors Logical; return per-region posteriors?
 #' @param return_contributions Logical; return per-model contributions?
+#' @param normalize_posterior Logical; if TRUE (default), normalizes posteriors
+#'   to sum to 1. If FALSE, uses unnormalized posteriors (P(D|M) * P(M)) which
+#'   matches the original Correll & Heer (2017) JavaScript implementation.
 #' @param ... Additional arguments passed to likelihood functions
 #'
 #' @return A `bs_surprise` object
@@ -171,6 +174,11 @@ bayesian_update <- function(model_space, observed, region_idx = NULL, ...) {
 #' 2. The KL-divergence from prior to posterior (surprise)
 #' 3. Optionally, the sign based on deviation direction
 #'
+#' When `normalize_posterior = FALSE`, the function matches the original paper's
+#' JavaScript implementation which uses unnormalized posteriors in the KL
+#' computation. This is mathematically unconventional but reproduces the
+#' published results exactly.
+#'
 #' @export
 compute_surprise <- function(model_space,
                               observed,
@@ -178,6 +186,7 @@ compute_surprise <- function(model_space,
                               return_signed = TRUE,
                               return_posteriors = FALSE,
                               return_contributions = FALSE,
+                              normalize_posterior = TRUE,
                               ...) {
   if (!inherits(model_space, "bs_model_space")) {
     cli_abort("{.arg model_space} must be a {.cls bs_model_space} object.")
@@ -198,17 +207,26 @@ compute_surprise <- function(model_space,
   }
 
 
-  # Compute expected counts for signed surprise
-  # When expected is provided as population/sample size, compute expected counts
-  # as: expected_count[i] = population[i] * overall_rate
+  # Compute expected values for signed surprise
+  # The sign indicates whether observation is above or below expectation
   if (return_signed) {
     if (is.null(expected)) {
       # Use mean as default expected value
       expected_for_sign <- rep(mean(observed, na.rm = TRUE), n)
     } else {
-      # expected is population - compute expected counts at overall rate
-      overall_rate <- sum(observed, na.rm = TRUE) / sum(expected, na.rm = TRUE)
-      expected_for_sign <- expected * overall_rate
+      if (normalize_posterior) {
+        # Standard approach: expected count = pop * overall_rate (weighted mean)
+        overall_rate <- sum(observed, na.rm = TRUE) / sum(expected, na.rm = TRUE)
+        expected_for_sign <- expected * overall_rate
+      } else {
+        # Paper-matching: sign based on rate - mean(rates) (unweighted mean)
+        # This matches the dM.Score sign from the funnel model
+        # SignedSurprise = sign(rate - mean_rate) * Surprise
+        rates <- observed / expected
+        mean_rate <- mean(rates, na.rm = TRUE)
+        # Store deviation in rate space, not count space
+        expected_for_sign <- expected * mean_rate
+      }
     }
   } else {
     expected_for_sign <- NULL
@@ -234,12 +252,27 @@ compute_surprise <- function(model_space,
     # Compute posterior for this region
     log_prior <- log(prior)
     log_posterior_unnorm <- log_likelihoods + log_prior
-    log_normalizer <- log_sum_exp(log_posterior_unnorm)
-    region_posterior <- exp(log_posterior_unnorm - log_normalizer)
-    region_posterior <- region_posterior / sum(region_posterior)
+
+    if (normalize_posterior) {
+      # Standard Bayesian: normalize to proper probability distribution
+      log_normalizer <- log_sum_exp(log_posterior_unnorm)
+      region_posterior <- exp(log_posterior_unnorm - log_normalizer)
+      region_posterior <- region_posterior / sum(region_posterior)
+    } else
+{
+      # Paper-matching: use unnormalized posteriors P(D|M) * P(M)
+      # This matches the original Correll & Heer (2017) JavaScript
+      region_posterior <- exp(log_posterior_unnorm)
+    }
 
     # Compute KL-divergence (surprise)
-    surprise_values[i] <- kl_divergence(region_posterior, prior)
+    # Note: when normalize_posterior=FALSE, this uses unnormalized posteriors
+    # which gives different (paper-matching) results
+    kl_value <- kl_divergence(region_posterior, prior)
+
+    # Paper uses |KL| for surprise (see main.js line 107)
+    # With unnormalized posteriors, KL can be negative
+    surprise_values[i] <- abs(kl_value)
 
     # Store posteriors if requested
     if (return_posteriors) {

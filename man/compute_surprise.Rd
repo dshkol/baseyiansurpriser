@@ -11,6 +11,7 @@ compute_surprise(
   return_signed = TRUE,
   return_posteriors = FALSE,
   return_contributions = FALSE,
+  normalize_posterior = TRUE,
   ...
 )
 }
@@ -26,6 +27,10 @@ compute_surprise(
 \item{return_posteriors}{Logical; return per-region posteriors?}
 
 \item{return_contributions}{Logical; return per-model contributions?}
+
+\item{normalize_posterior}{Logical; if TRUE (default), normalizes posteriors
+to sum to 1. If FALSE, uses unnormalized posteriors (P(D|M) * P(M)) which
+matches the original Correll & Heer (2017) JavaScript implementation.}
 
 \item{...}{Additional arguments passed to likelihood functions}
 }
@@ -43,4 +48,9 @@ For each region i, computes:
 \item The KL-divergence from prior to posterior (surprise)
 \item Optionally, the sign based on deviation direction
 }
+
+When \code{normalize_posterior = FALSE}, the function matches the original paper's
+JavaScript implementation which uses unnormalized posteriors in the KL
+computation. This is mathematically unconventional but reproduces the
+published results exactly.
 }

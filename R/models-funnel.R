@@ -11,6 +11,10 @@
 #' @param sample_size Numeric vector of sample sizes (e.g., population)
 #' @param target_rate Target rate/proportion. If NULL, estimated from data.
 #' @param type Type of data: "count" (Poisson) or "proportion" (binomial)
+#' @param formula Formula for likelihood computation:
+#'   - "paper" (default): Matches Correll & Heer (2017) exactly.
+#'     Uses dM = Z * sqrt(pop_frac) and P(D|M) = 2*pnorm(-|dM|).
+#'   - "poisson": Uses Poisson-based SE and normal PDF as likelihood.
 #' @param control_limits Numeric vector of control limits (in SDs) for funnel plot.
 #'   Default is c(2, 3) for warning and control limits.
 #' @param name Optional name for the model
@@ -22,6 +26,13 @@
 #' decreases with sample size according to de Moivre's equation:
 #' \deqn{SE = \sigma / \sqrt{n}}
 #'
+#' With formula = "paper" (recommended):
+#' The model uses the exact formulas from Correll & Heer (2017):
+#' \deqn{Z = (rate - mean_rate) / stddev_rate}
+#' \deqn{dM = Z \times \sqrt{population / total\_population}}
+#' \deqn{P(D|M) = 2 \times \Phi(-|dM|)}
+#'
+#' With formula = "poisson":
 #' For count data (Poisson), the model computes z-scores as:
 #' \deqn{z = (observed - expected) / \sqrt{expected}}
 #'
@@ -42,73 +53,120 @@
 #' # Population sizes for regions
 #' population <- c(10000, 50000, 100000, 25000)
 #'
-#' # Funnel model for count data
-#' model <- bs_model_funnel(population)
+#' # Funnel model matching the paper (recommended)
+#' model <- bs_model_funnel(population, formula = "paper")
 #'
 #' # Funnel model with known target rate
 #' model <- bs_model_funnel(population, target_rate = 0.001)
 #'
-#' # For proportion data
-#' model <- bs_model_funnel(population, type = "proportion")
+#' # For proportion data with Poisson-based formula
+#' model <- bs_model_funnel(population, type = "proportion", formula = "poisson")
 bs_model_funnel <- function(sample_size,
                              target_rate = NULL,
                              type = c("count", "proportion"),
+                             formula = c("paper", "poisson"),
                              control_limits = c(2, 3),
                              name = NULL) {
   type <- match.arg(type)
+  formula <- match.arg(formula)
 
   if (is.null(sample_size) || length(sample_size) == 0) {
     cli_abort("{.arg sample_size} cannot be NULL or empty.")
   }
 
+  # Store sample_size for paper formula
+  stored_sample_size <- sample_size
+  stored_total_pop <- sum(sample_size, na.rm = TRUE)
+
   likelihood_fn <- function(observed, region_idx = NULL, ...) {
     n_regions <- length(observed)
 
     # Handle sample_size length mismatch
-    ss <- if (length(sample_size) == 1) {
-      rep(sample_size, n_regions)
-    } else if (length(sample_size) != n_regions) {
-      cli_abort("sample_size length ({length(sample_size)}) must match observed ({n_regions})")
+    ss <- if (length(stored_sample_size) == 1) {
+      rep(stored_sample_size, n_regions)
+    } else if (length(stored_sample_size) != n_regions) {
+      cli_abort("sample_size length ({length(stored_sample_size)}) must match observed ({n_regions})")
     } else {
-      sample_size
+      stored_sample_size
     }
 
-    # Compute target rate if not provided
-    rate <- target_rate
-    if (is.null(rate)) {
-      rate <- sum(observed, na.rm = TRUE) / sum(ss, na.rm = TRUE)
-    }
+    if (formula == "paper") {
+      # Correll & Heer (2017) paper formula
+      # Compute rates
+      rates <- observed / ss
+      # Paper uses UNWEIGHTED mean and std of rates (see models.js line 203-204)
+      mean_rate <- mean(rates, na.rm = TRUE)
+      stddev_rate <- stats::sd(rates, na.rm = TRUE)
 
-    # Compute expected values and standard errors
-    expected <- ss * rate
-
-    se <- switch(type,
-      count = {
-        # Poisson: SE = sqrt(expected)
-        sqrt(pmax(expected, 0.5))
-      },
-      proportion = {
-        # Binomial: SE = sqrt(p * (1-p) / n)
-        p <- pmin(pmax(rate, 0.001), 0.999)
-        sqrt(p * (1 - p) * ss)
+      # Avoid division by zero
+      if (is.na(stddev_rate) || stddev_rate == 0) {
+        stddev_rate <- 1e-10
       }
-    )
 
-    if (!is.null(region_idx)) {
-      # Per-region likelihood
-      obs_i <- observed[region_idx]
-      if (is.na(obs_i)) return(-Inf)
+      # Z-score based on rate
+      z_scores <- (rates - mean_rate) / stddev_rate
 
-      # Z-score for this region
-      z <- (obs_i - expected[region_idx]) / se[region_idx]
+      # Population fraction
+      pop_frac <- ss / stored_total_pop
 
-      # Likelihood under standard normal
-      stats::dnorm(z, log = TRUE)
+      # dM Score = Z * sqrt(pop_frac)
+      dM_scores <- z_scores * sqrt(pop_frac)
+
+      if (!is.null(region_idx)) {
+        # Per-region likelihood
+        if (is.na(observed[region_idx])) return(-Inf)
+
+        dM <- dM_scores[region_idx]
+        # P(D|M) = 2 * pnorm(-|dM|) - two-tailed p-value
+        p_value <- 2 * stats::pnorm(-abs(dM))
+        log(pmax(p_value, 1e-300))
+      } else {
+        # Global likelihood
+        valid <- !is.na(observed)
+        p_values <- 2 * stats::pnorm(-abs(dM_scores[valid]))
+        sum(log(pmax(p_values, 1e-300)))
+      }
     } else {
-      # Global likelihood
-      valid <- !is.na(observed)
-      z <- (observed[valid] - expected[valid]) / se[valid]
-      sum(stats::dnorm(z, log = TRUE))
+      # Poisson-based formula (original implementation)
+      # Compute target rate if not provided
+      rate <- target_rate
+      if (is.null(rate)) {
+        rate <- sum(observed, na.rm = TRUE) / sum(ss, na.rm = TRUE)
+      }
+
+      # Compute expected values and standard errors
+      expected <- ss * rate
+
+      se <- switch(type,
+        count = {
+          # Poisson: SE = sqrt(expected)
+          sqrt(pmax(expected, 0.5))
+        },
+        proportion = {
+          # Binomial: SE = sqrt(p * (1-p) / n)
+          p <- pmin(pmax(rate, 0.001), 0.999)
+          sqrt(p * (1 - p) * ss)
+        }
+      )
+
+      if (!is.null(region_idx)) {
+        # Per-region likelihood
+        obs_i <- observed[region_idx]
+        if (is.na(obs_i)) return(-Inf)
+
+        # Z-score for this region
+        z <- (obs_i - expected[region_idx]) / se[region_idx]
+
+        # Two-tailed p-value (matching paper's approach)
+        p_value <- 2 * stats::pnorm(-abs(z))
+        log(pmax(p_value, 1e-300))
+      } else {
+        # Global likelihood
+        valid <- !is.na(observed)
+        z <- (observed[valid] - expected[valid]) / se[valid]
+        p_values <- 2 * stats::pnorm(-abs(z))
+        sum(log(pmax(p_values, 1e-300)))
+      }
     }
   }
 
@@ -118,10 +176,11 @@ bs_model_funnel <- function(sample_size,
       sample_size = sample_size,
       target_rate = target_rate,
       type = type,
+      formula = formula,
       control_limits = control_limits
     ),
     likelihood_fn = likelihood_fn,
-    name = name %||% "de Moivre Funnel"
+    name = name %||% paste0("de Moivre Funnel (", formula, ")")
   )
 }
 

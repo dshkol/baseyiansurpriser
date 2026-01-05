@@ -38,20 +38,10 @@ bs_model_uniform <- function(n_regions = NULL) {
 
     if (!is.null(region_idx)) {
       # Per-region likelihood
-      # How likely is this region's value under uniform assumption?
-      # Using multinomial/Poisson-like approach
-      total <- sum(observed, na.rm = TRUE)
-      if (total == 0) return(0)
-
-      # Expected count for this region under uniform
-      expected_count <- total / n
-
-      # Log-likelihood contribution from this region
-      # Using Poisson approximation
-      obs_i <- observed[region_idx]
-      if (is.na(obs_i)) return(-Inf)
-
-      stats::dpois(round(obs_i), lambda = expected_count, log = TRUE)
+      # Paper uses P(D|Uniform) = 1 (constant) - see models.js DiscreteUniform
+      # This represents the null hypothesis that events are equally likely everywhere
+      # Returns log(1) = 0
+      0
     } else {
       # Global likelihood
       # Total variation distance from uniform, converted to log-likelihood

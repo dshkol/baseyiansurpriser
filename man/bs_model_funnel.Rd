@@ -8,6 +8,7 @@ bs_model_funnel(
   sample_size,
   target_rate = NULL,
   type = c("count", "proportion"),
+  formula = c("paper", "poisson"),
   control_limits = c(2, 3),
   name = NULL
 )
@@ -18,6 +19,13 @@ bs_model_funnel(
 \item{target_rate}{Target rate/proportion. If NULL, estimated from data.}
 
 \item{type}{Type of data: "count" (Poisson) or "proportion" (binomial)}
+
+\item{formula}{Formula for likelihood computation:
+\itemize{
+\item "paper" (default): Matches Correll & Heer (2017) exactly.
+Uses dM = Z * sqrt(pop_frac) and P(D|M) = 2*pnorm(-|dM|).
+\item "poisson": Uses Poisson-based SE and normal PDF as likelihood.
+}}
 
 \item{control_limits}{Numeric vector of control limits (in SDs) for funnel plot.
 Default is c(2, 3) for warning and control limits.}
@@ -37,6 +45,13 @@ The de Moivre funnel model uses the insight that sampling variability
 decreases with sample size according to de Moivre's equation:
 \deqn{SE = \sigma / \sqrt{n}}
 
+With formula = "paper" (recommended):
+The model uses the exact formulas from Correll & Heer (2017):
+\deqn{Z = (rate - mean_rate) / stddev_rate}
+\deqn{dM = Z \times \sqrt{population / total\_population}}
+\deqn{P(D|M) = 2 \times \Phi(-|dM|)}
+
+With formula = "poisson":
 For count data (Poisson), the model computes z-scores as:
 \deqn{z = (observed - expected) / \sqrt{expected}}
 
@@ -58,12 +73,12 @@ This model is essential for:
 # Population sizes for regions
 population <- c(10000, 50000, 100000, 25000)
 
-# Funnel model for count data
-model <- bs_model_funnel(population)
+# Funnel model matching the paper (recommended)
+model <- bs_model_funnel(population, formula = "paper")
 
 # Funnel model with known target rate
 model <- bs_model_funnel(population, target_rate = 0.001)
 
-# For proportion data
-model <- bs_model_funnel(population, type = "proportion")
+# For proportion data with Poisson-based formula
+model <- bs_model_funnel(population, type = "proportion", formula = "poisson")
 }

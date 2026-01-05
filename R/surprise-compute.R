@@ -22,6 +22,9 @@
 #' @param prior Numeric vector of prior probabilities for models.
 #'   Only used when `models` is a character vector or list.
 #' @param signed Logical; compute signed surprise?
+#' @param normalize_posterior Logical; if TRUE (default), normalizes posteriors.
+#'   If FALSE, uses unnormalized posteriors matching the original Correll & Heer
+#'   (2017) JavaScript implementation. Use FALSE to replicate paper results exactly.
 #' @param ... Additional arguments passed to model likelihood functions
 #'
 #' @return For data frames: the input with `surprise` (and optionally
@@ -60,6 +63,7 @@ surprise <- function(data,
                      models = c("uniform", "baserate", "funnel"),
                      prior = NULL,
                      signed = TRUE,
+                     normalize_posterior = TRUE,
                      ...) {
   UseMethod("surprise")
 }
@@ -73,6 +77,7 @@ surprise.data.frame <- function(data,
                                  models = c("uniform", "baserate", "funnel"),
                                  prior = NULL,
                                  signed = TRUE,
+                                 normalize_posterior = TRUE,
                                  ...) {
   # Extract observed values
   obs_vals <- extract_column(data, rlang::enquo(observed))
@@ -100,6 +105,7 @@ surprise.data.frame <- function(data,
     observed = obs_vals,
     expected = exp_vals,
     return_signed = signed,
+    normalize_posterior = normalize_posterior,
     ...
   )
 

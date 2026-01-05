@@ -72,5 +72,5 @@ test_that("default_model_space creates appropriate models", {
   space <- default_model_space(expected)
 
   expect_equal(space$n_models, 3)
-  expect_equal(names(space$models), c("Uniform", "Base Rate", "de Moivre Funnel"))
+  expect_equal(names(space$models), c("Uniform", "Base Rate", "de Moivre Funnel (paper)"))
 })
